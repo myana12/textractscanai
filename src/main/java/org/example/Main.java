@@ -9,6 +9,10 @@ import software.amazon.awssdk.services.textract.TextractClient;
 import software.amazon.awssdk.services.textract.model.BlockType;
 import software.amazon.awssdk.services.textract.model.DetectDocumentTextResponse;
 
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
 import java.util.stream.Collectors;
 
 //TIP To <b>Run</b> code, press <shortcut actionId="Run"/> or
@@ -18,6 +22,8 @@ public class Main implements RequestHandler<SQSEvent,Void> {
 //    public Void handleRequest(SQSEvent input, Context context) {
 //        return null;
 //    }
+
+
 
     private final TextractClient textractClient = TextractClient.builder()
             .region(Region.AP_SOUTH_1)
@@ -36,6 +42,18 @@ public class Main implements RequestHandler<SQSEvent,Void> {
             // {"Records":[{"s3":{"bucket":{"name":"..."},"object":{"key":"..."}}}]}
             String body = message.getBody();
             context.getLogger().log("Raw SQS message body: " + body);
+//            String url=System.getenv("DB_URL");
+//            String username=System.getenv("DB_USER");
+//            String password=System.getenv("DB_PASSWORD");
+//            try
+//            {
+//                Connection con = DriverManager.getConnection(url, username, password);
+//            }
+//            catch(SQLException e)
+//            {
+//                System.out.println("Connection failed");
+//            }
+
 
             try {
                 // Parse the JSON string into a navigable tree structure.
@@ -50,16 +68,30 @@ public class Main implements RequestHandler<SQSEvent,Void> {
 
                 context.getLogger().log("Bucket: " + bucketName + ", Key: " + objectKey);
 
+
+                String url=System.getenv("DB_URL");
+                String username=System.getenv("DB_USER");
+                String password=System.getenv("DB_PASSWORD");
                 // Call Textract on that exact S3 object.
                 String extractedText = extract(bucketName, objectKey);
-
                 context.getLogger().log("Extracted text: " + extractedText);
-
+                try (Connection con = DriverManager.getConnection(url, username, password)) {
+                    String sql = "UPDATE document SET extracted_text = ?, status = ? WHERE path = ?";
+                    PreparedStatement stmt = con.prepareStatement(sql);
+                    stmt.setString(1, extractedText);
+                    stmt.setString(2, "PROCESSED");
+                    stmt.setString(3, objectKey);
+                    stmt.executeUpdate();
+                    context.getLogger().log("Database updated successfully");
+                }
             } catch (Exception e) {
-                // If parsing/extraction fails, log it — don't let one bad message
-                // crash silently. (We'll handle retries/DLQ properly later.)
                 context.getLogger().log("Error processing message: " + e.getMessage());
             }
+
+
+
+
+
         }
         return null;
     }
